@@ -15,7 +15,11 @@ if (process.argv.length <= 3) {
 }
 
 const connectionString = process.argv[2];
-const dumperVars = process.argv.slice(3).map(topic => ({ topic, outFile: `${topic}.log` }));
+const dumperVars = process.argv.slice(3).map(topic => ({
+    topic,
+    outFile: `./${topic}.log`,
+    nbConsumedMessages: 0,
+}));
 
 console.log('initializing consumers...');
 
@@ -32,9 +36,10 @@ async.each(dumperVars, (vars, done) => {
         console.error(`error in consumer of ${vars.topic} topic: ${err.message}`);
     });
     vars.consumer.once('connect', () => {
-        console.log(`    ${vars.topic} => ./${vars.outFile}`);
+        console.log(`    ${vars.topic} => ${vars.outFile}`);
         vars.consumer.on('message', entry => {
             vars.stream.write(`${Date.now()},${entry.value}\n`, 'utf8');
+            ++vars.nbConsumedMessages;
         });
         done();
     });
@@ -43,6 +48,7 @@ async.each(dumperVars, (vars, done) => {
         console.log('closing consumers and log files...');
         async.each(dumperVars, (vars, done) => {
             vars.consumer.close(true, () => {
+                console.log(`    ${vars.outFile}: ${vars.nbConsumedMessages} messages dumped`);
                 vars.stream.on('finish', done);
                 vars.stream.end();
             });

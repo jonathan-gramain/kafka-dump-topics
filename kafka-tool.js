@@ -152,7 +152,7 @@ function setConsumerGroupOffset(options) {
                 consumer = new kafka.ConsumerGroup({
                     host: program.zookeeper,
                     groupId: options.group,
-                    fromOffset: 'earliest',
+                    fromOffset: 'latest',
                     autoCommit: false,
                     fetchMaxBytes: 100000,
                 }, topic);
@@ -163,7 +163,8 @@ function setConsumerGroupOffset(options) {
                 });
                 return consumer.once('connect', next);
             },
-            next => consumer.close(true, next),
+            next => consumer.commit(next),
+            next => consumer.close(next),
             next => {
                 console.log('offset set to \'latest\' for consumer group ' +
                             `${options.group} and topic ${topic}`);

@@ -79,20 +79,8 @@ function getLatestOffset() {
         }),
         (metadata, next) => {
             topicsMd = metadata;
-            const fetchPayload = [];
-            topics.forEach(topic => {
-                const topicInfo = topicsMd[topic];
-                Object.keys(topicInfo).forEach(partNum => {
-                    const partInfo = topicInfo[partNum];
-                    fetchPayload.push({
-                        topic,
-                        partition: partInfo.partition,
-                        time: -1,
-                    });
-                });
-            });
             offset = new kafka.Offset(client);
-            offset.fetch(fetchPayload, (err, offsetRes) => {
+            offset.fetchLatestOffsets(topics, (err, offsetRes) => {
                 if (err) {
                     console.error('error fetching topic offsets:', err);
                     return next(err);
@@ -117,6 +105,74 @@ function getLatestOffset() {
     });
 }
 
+function getConsumerGroupOffset(options) {
+    if (!options.group) {
+        console.log('you need to specify a consumer group with --group');
+        process.exit(1);
+    }
+    async.each(topics, (topic, done) => {
+        let consumer;
+        async.series([
+            next => {
+                consumer = new kafka.ConsumerGroup({
+                    host: program.zookeeper,
+                    groupId: options.group,
+                    fromOffset: 'none',
+                    autoCommit: false,
+                    fetchMaxBytes: 100000,
+                }, topic);
+                consumer.on('error', err => {
+                    console.error(`error in consumer of ${topic} topic: ` +
+                                  `${err.message}`);
+                    return next(err);
+                });
+                return consumer.once('connect', next);
+            },
+            next => {
+                consumer.topicPayloads.forEach(payload => {
+                    console.log(`    topic ${payload.topic}, ` +
+                                `partition ${payload.partition}: ` +
+                                `offset=${payload.offset}`);
+                });
+                consumer.close(false, next);
+            },
+        ], done);
+    }, () => {});
+}
+
+function setConsumerGroupOffset(options) {
+    if (!options.group) {
+        console.log('you need to specify a consumer group with --group');
+        process.exit(1);
+    }
+    async.each(topics, (topic, done) => {
+        let consumer;
+        async.series([
+            next => {
+                consumer = new kafka.ConsumerGroup({
+                    host: program.zookeeper,
+                    groupId: options.group,
+                    fromOffset: 'earliest',
+                    autoCommit: false,
+                    fetchMaxBytes: 100000,
+                }, topic);
+                consumer.on('error', err => {
+                    console.error(`error in consumer of ${topic} topic: ` +
+                                  `${err.message}`);
+                    return next(err);
+                });
+                return consumer.once('connect', next);
+            },
+            next => consumer.close(true, next),
+            next => {
+                console.log('offset set to \'latest\' for consumer group ' +
+                            `${options.group} and topic ${topic}`);
+                return process.nextTick(next);
+            }
+        ], done);
+    }, () => {});
+}
+
 program
     .option('--zookeeper <connectString>',
             'zookeeper connect string (e.g. "localhost:2181")')
@@ -131,5 +187,16 @@ program
     .command('get-latest-offset')
     .description('get latest offset of topic partitions')
     .action(getLatestOffset);
+
+program
+    .command('get-consumer-group-offset')
+    .option('--group <groupId>', 'set group Id')
+    .action(getConsumerGroupOffset);
+
+program
+    .command('set-consumer-group-offset')
+    .option('--group <groupId>', 'set group Id')
+    .action(setConsumerGroupOffset);
+
 
 program.parse(process.argv);

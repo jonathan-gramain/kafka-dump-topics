@@ -57,15 +57,11 @@ function dumpTopics() {
 }
 
 function getLatestOffset() {
-    const dumperVars = topics.map(topic => ({
-        topic,
-        nbConsumedMessages: 0,
-    }));
-
     let client;
     let offset;
     let topicsMd;
-    async.waterfall([
+    let topicsOffsets;
+    async.series([
         next => {
             client = new kafka.Client(program.zookeeper);
             client.on('connect', next);
@@ -75,22 +71,23 @@ function getLatestOffset() {
                 console.error('error loading metadata for topics:', err);
                 return next(err);
             }
-            return next(null, res[1].metadata);
+            topicsMd = res[1].metadata;
+            return next();
         }),
-        (metadata, next) => {
-            topicsMd = metadata;
+        next => {
             offset = new kafka.Offset(client);
             offset.fetchLatestOffsets(topics, (err, offsetRes) => {
                 if (err) {
                     console.error('error fetching topic offsets:', err);
                     return next(err);
                 }
-                return next(null, offsetRes);
+                topicsOffsets = offsetRes;
+                return next();
             });
         },
-        (offsetRes, next) => {
+        next => {
             topics.forEach(topic => {
-                const topicOffsets = offsetRes[topic];
+                const topicOffsets = topicsOffsets[topic];
                 console.log(`latest offsets for topic ${topic}:`);
                 Object.keys(topicOffsets).forEach(partNum => {
                     const partOffset = topicOffsets[partNum];
@@ -145,33 +142,69 @@ function setConsumerGroupOffset(options) {
         console.log('you need to specify a consumer group with --group');
         process.exit(1);
     }
-    async.each(topics, (topic, done) => {
-        let consumer;
-        async.series([
-            next => {
-                consumer = new kafka.ConsumerGroup({
-                    host: program.zookeeper,
-                    groupId: options.group,
-                    fromOffset: 'latest',
-                    autoCommit: false,
-                    fetchMaxBytes: 100000,
-                }, topic);
-                consumer.on('error', err => {
-                    console.error(`error in consumer of ${topic} topic: ` +
-                                  `${err.message}`);
-                    return next(err);
-                });
-                return consumer.once('connect', next);
-            },
-            next => consumer.commit(next),
-            next => consumer.close(next),
-            next => {
-                console.log('offset set to \'latest\' for consumer group ' +
-                            `${options.group} and topic ${topic}`);
-                return process.nextTick(next);
+
+    let client;
+    let offset;
+    let topicsMd;
+    let topicsOffsets;
+    let consumer;
+    async.series([
+        next => {
+            client = new kafka.Client(program.zookeeper);
+            client.on('connect', next);
+        },
+        next => client.loadMetadataForTopics(topics, (err, res) => {
+            if (err) {
+                console.error('error loading metadata for topics:', err);
+                return next(err);
             }
-        ], done);
-    }, () => {});
+            topicsMd = res[1].metadata;
+            return next();
+        }),
+        next => {
+            offset = new kafka.Offset(client);
+            offset.fetchLatestOffsets(topics, (err, offsetRes) => {
+                if (err) {
+                    console.error('error fetching topic offsets:', err);
+                    return next(err);
+                }
+                topicsOffsets = offsetRes;
+                return next();
+            });
+        },
+        next => {
+            consumer = new kafka.ConsumerGroup({
+                host: program.zookeeper,
+                groupId: options.group,
+                fromOffset: 'none',
+                autoCommit: false,
+                fetchMaxBytes: 100000,
+            }, topics);
+            consumer.on('error', err => {
+                console.error(`error in consumer of ${topics} topics: ` +
+                              `${err.message}`);
+                return next(err);
+            });
+            return consumer.once('connect', next);
+        },
+        next => {
+            topics.forEach(topic => {
+                const topicOffsets = topicsOffsets[topic];
+                console.log('setting latest offsets on group ' +
+                            `${options.group} for topic ${topic}:`);
+                Object.keys(topicOffsets).forEach(partNum => {
+                    const partOffset = topicOffsets[partNum];
+                    console.log(`    partition ${partNum}: offset=${partOffset}`);
+                    consumer.setOffset(topic, partNum, partOffset);
+                });
+            });
+            consumer.commit(next);
+        },
+        next => consumer.close(next),
+        next => client.close(next),
+    ], err => {
+        process.exit(err ? 1 : 0);
+    });
 }
 
 program

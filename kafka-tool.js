@@ -131,7 +131,7 @@ function getConsumerGroupOffset(options) {
                                 `partition ${payload.partition}: ` +
                                 `offset=${payload.offset}`);
                 });
-                consumer.close(false, next);
+                consumer.close(next);
             },
         ], done);
     }, () => {});
@@ -200,7 +200,7 @@ function setConsumerGroupOffset(options) {
             });
             consumer.commit(next);
         },
-        next => consumer.close(next),
+        next => consumer.close(true, next),
         next => client.close(next),
     ], err => {
         process.exit(err ? 1 : 0);

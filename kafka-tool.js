@@ -6,9 +6,14 @@ const program = require('commander');
 const kafka = require('kafka-node');
 
 const topics = [];
+const groups = [];
 
 function collectTopics(topic) {
     topics.push(topic);
+}
+
+function collectGroups(group) {
+    groups.push(group);
 }
 
 function dumpTopics() {
@@ -126,11 +131,14 @@ function getConsumerGroupOffset(options) {
                 return consumer.once('connect', next);
             },
             next => {
-                consumer.topicPayloads.forEach(payload => {
-                    console.log(`    topic ${payload.topic}, ` +
-                                `partition ${payload.partition}: ` +
-                                `offset=${payload.offset}`);
-                });
+                const payloads = consumer.getTopicPayloads();
+                if (payloads) {
+                        payloads.forEach(payload => {
+                            console.log(`    topic ${payload.topic}, ` +
+                                        `partition ${payload.partition}: ` +
+                                        `offset=${payload.offset}`);
+                        });
+                }
                 consumer.close(next);
             },
         ], done);
@@ -207,6 +215,32 @@ function setConsumerGroupOffset(options) {
     });
 }
 
+function describeGroups(options) {
+    let client;
+    let admin;
+    async.series([
+        next => {
+            client = new kafka.KafkaClient({ kafkaHost: options.kafka });
+            client.on('connect', next);
+        },
+        next => {
+            admin = new kafka.Admin(client);
+            admin.describeGroups(groups, (err, res) => {
+                if (err) {
+                    console.error('error describing groups', groups,
+                                  `: ${err.message}`);
+                    return next(err);
+                }
+                console.log('res:', res);
+                return next();
+            });
+        },
+    ], err => {
+        process.exit(err ? 1 : 0);
+    });
+}
+
+
 program
     .option('--zookeeper <connectString>',
             'zookeeper connect string (e.g. "localhost:2181")')
@@ -231,6 +265,12 @@ program
     .command('set-consumer-group-offset')
     .option('--group <groupId>', 'set group Id')
     .action(setConsumerGroupOffset);
+
+program
+    .command('describe-groups')
+    .option('--kafka <kafka>', 'set kafka broker ip/port (e.g. "localhost:9092")')
+    .option('--group <groupId>', 'set group Id', collectGroups, [])
+    .action(describeGroups);
 
 
 program.parse(process.argv);

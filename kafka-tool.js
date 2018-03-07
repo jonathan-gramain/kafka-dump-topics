@@ -221,7 +221,7 @@ function describeGroups(options) {
     async.series([
         next => {
             client = new kafka.KafkaClient({ kafkaHost: options.kafka });
-            client.on('connect', next);
+            client.once('connect', next);
         },
         next => {
             admin = new kafka.Admin(client);

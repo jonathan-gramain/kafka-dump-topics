@@ -240,7 +240,7 @@ function describeGroups(options) {
                      });
                     console.log('    members:');
                     groupDesc.members.forEach(member => {
-                        console.log(`        ${member}`);
+                        console.log(`        ${JSON.stringify(member)}`);
                     });
                 });
                 return next();

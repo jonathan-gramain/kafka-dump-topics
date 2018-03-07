@@ -231,7 +231,18 @@ function describeGroups(options) {
                                   `: ${err.message}`);
                     return next(err);
                 }
-                console.log('res:', res);
+                groups.forEach(group => {
+                    console.log(`description of group ${group}:`);
+                    const groupDesc = res[group];
+                    ['error', 'state', 'protocolType',
+                     'protocol', 'brokerId'].forEach(attr => {
+                         console.log(`    ${attr}: ${groupDesc[attr]}`);
+                     });
+                    console.log('    members:');
+                    groupDesc.members.forEach(member => {
+                        console.log(`        ${member}`);
+                    });
+                });
                 return next();
             });
         },
